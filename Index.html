@@ -281,4 +281,53 @@ addEventListener('resize', () => {
 });
 </script>
 </body>
+
+</html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>2 Player Racing Game</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: #000;
+            font-family: Arial, sans-serif;
+        }
+
+        #gameCanvas {
+            width: 100vw;
+            height: 100vh;
+            display: block;
+        }
+
+        /* За текст и дебъг ако трябва */
+        #info {
+            position: absolute;
+            color: white;
+            left: 10px;
+            top: 10px;
+            font-size: 20px;
+            z-index: 10;
+        }
+    </style>
+</head>
+
+<body>
+
+<div id="info">2 Player Racing Game</div>
+
+<canvas id="gameCanvas"></canvas>
+
+<!-- Three.js CDN -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r155/three.min.js"></script>
+
+<!-- GLTF Loader -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r155/examples/js/loaders/GLTFLoader.js"></script>
+
+<!-- Твоят main.js -->
+<script src="main.js"></script>
+
+</body>
 </html>
