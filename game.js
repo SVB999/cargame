@@ -252,4 +252,39 @@ window.addEventListener("resize", () => {
     camera2.aspect = w / half;
     camera1.updateProjectionMatrix();
     camera2.updateProjectionMatrix();
+
 });
+// === Damage System ===
+function applyDamageLogic(car) {
+    if (!car.damageTimer) car.damageTimer = 0;
+    if (!car.damageLevel) car.damageLevel = 0;
+
+    // Ако е катастрофирал, увеличаваме damage
+    if (car.crashed) {
+        car.damageLevel = Math.min(car.damageLevel + 0.5, 100); // максимум 100%
+        car.damageTimer = 200; // 200 кадъра = около 3 сек
+    }
+
+    // Ако има активен damage
+    if (car.damageTimer > 0) {
+        car.damageTimer--;
+
+        // Ефекти от повредата
+        const damageFactor = car.damageLevel / 100;
+
+        // Намаляване на макс скорост
+        car.maxSpeed = 220 - damageFactor * 80; // от 220 пада до 140
+
+        // По-трудно завиване
+        car.steerMultiplier = 1 - damageFactor * 0.3; // 70% steering при голяма повреда
+
+        // Леко дърпане настрани
+        const pull = (Math.random() - 0.5) * 0.02 * damageFactor;
+        car.position.x += pull;
+    } else {
+        // Възстановяване след време
+        car.damageLevel *= 0.98;
+        car.maxSpeed = 220;
+        car.steerMultiplier = 1;
+    }
+}
