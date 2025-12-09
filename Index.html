@@ -281,4 +281,206 @@ addEventListener('resize', () => {
 });
 </script>
 </body>
+
 </html>
+// === Setup ===
+const canvas = document.getElementById("gameCanvas");
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(window.devicePixelRatio);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x87ceeb);
+
+// === Light ===
+const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+dirLight.position.set(10, 20, 10);
+scene.add(dirLight);
+
+const ambLight = new THREE.AmbientLight(0xffffff, 0.4);
+scene.add(ambLight);
+
+// === Road ===
+const laneWidth = 3;
+const roadTexture = new THREE.TextureLoader().load("./road_texture.jpg");
+roadTexture.wrapS = THREE.RepeatWrapping;
+roadTexture.wrapT = THREE.RepeatWrapping;
+roadTexture.repeat.set(1, 200);
+
+const road = new THREE.Mesh(
+    new THREE.PlaneGeometry(30, 2000),
+    new THREE.MeshPhongMaterial({ map: roadTexture })
+);
+road.rotation.x = -Math.PI/2;
+scene.add(road);
+
+// === Load Cars ===
+let car1, car2;
+const loader = new THREE.GLTFLoader();
+
+loader.load("./red_car.glb", gltf => {
+    car1 = gltf.scene;
+    car1.scale.set(1.2, 1.2, 1.2);
+    car1.position.set(0, 0.6, 0);
+    car1.speed = 0;
+    car1.lane = 0;
+    scene.add(car1);
+});
+
+loader.load("./blue_car.glb", gltf => {
+    car2 = gltf.scene;
+    car2.scale.set(1.2, 1.2, 1.2);
+    car2.position.set(0, 0.6, 5);
+    car2.speed = 0;
+    car2.lane = 0;
+    scene.add(car2);
+});
+
+// === NPC Pool ===
+const npcCars = [];
+const npcCount = 12;
+const npcPool = [];
+
+function createNPC() {
+    const npc = new THREE.Mesh(
+        new THREE.BoxGeometry(1.2, 1, 2.4),
+        new THREE.MeshPhongMaterial({ color: 0x888888 })
+    );
+    npc.lane = Math.floor(Math.random() * 3) - 1;
+    npc.targetLane = npc.lane;
+    npc.position.x = npc.lane * laneWidth;
+    npc.position.y = 0.6;
+    npc.position.z = -Math.random()*200 - 40;
+    npc.speed = 0.4 + Math.random()*0.6;
+    npc.active = true;
+    scene.add(npc);
+    return npc;
+}
+
+function getNPC() {
+    let npc = npcPool.find(n => !n.active);
+    if (npc) { npc.active = true; return npc; }
+    npc = createNPC();
+    npcPool.push(npc);
+    return npc;
+}
+
+function resetNPC(npc) {
+    npc.position.z = -200 - Math.random()*200;
+    npc.lane = Math.floor(Math.random() * 3) -1;
+    npc.targetLane = npc.lane;
+    npc.position.x = npc.lane * laneWidth;
+    npc.speed = 0.4 + Math.random()*0.6;
+    npc.active = false;
+}
+
+for (let i=0;i<npcCount;i++) npcCars.push(getNPC());
+
+// === Cameras ===
+const camera1 = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
+const camera2 = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
+
+function updateCamera(camera, car){
+    if(!car) return;
+    const targetPos = new THREE.Vector3(car.position.x, 4, car.position.z + 6);
+    camera.position.lerp(targetPos,0.1);
+    const shake = car.speed * 0.002;
+    camera.position.x += (Math.random()-0.5)*shake;
+    camera.position.y += (Math.random()-0.5)*shake;
+    camera.lookAt(car.position);
+}
+
+// === Controls ===
+let keys = {};
+document.addEventListener("keydown", e => keys[e.key] = true);
+document.addEventListener("keyup", e => keys[e.key] = false);
+
+const controls1 = { left: "a", right: "d", forward: "w" };
+const controls2 = { left: "ArrowLeft", right: "ArrowRight", forward: "ArrowUp" };
+
+// === NPC Update ===
+function updateNPC(){
+    npcCars.forEach(npc=>{
+        if(!npc.active) return;
+        npc.position.z += npc.speed * 2;
+        if(Math.random() < 0.002){
+            let newLane = Math.floor(Math.random()*3)-1;
+            let blocked = npcCars.some(other=>other!==npc && other.lane===newLane && Math.abs(other.position.z - npc.position.z)<4);
+            if(!blocked) npc.targetLane=newLane;
+        }
+        npc.position.x += (npc.targetLane*laneWidth - npc.position.x)*0.1;
+        if(npc.position.z>50) resetNPC(npc);
+    });
+}
+
+// === Crash Detection ===
+function detectCrash(car){
+    if(!car) return;
+    for(let npc of npcCars){
+        const dz = Math.abs(car.position.z - npc.position.z);
+        const dx = Math.abs(car.position.x - npc.position.x);
+        if(dz<2.5 && dx<1.5){
+            car.crashed = true;
+            car.speed *=0.2;
+            car.position.x += (car.position.x - npc.position.x)*0.1;
+            car.rotation.z = (car.position.x - npc.position.x)*-0.2;
+        }
+    }
+    if(!car.crashed) car.rotation.z *=0.9;
+    else{ car.speed *=0.95; if(car.speed<0.5) car.crashed=false; }
+}
+
+// === Car Physics (Player1 & Player2) ===
+function updateCarPhysics(car, controls){
+    if(!car) return;
+    const accel = 0.15, brake=0.25, maxSpeed=220, laneSmooth=0.16, steerStrength=0.035, steerReturn=0.12;
+    if(!car.steerAngle) car.steerAngle=0;
+    if(!car.targetSteer) car.targetSteer=0;
+
+    if(keys[controls.forward]) car.speed += accel;
+    else car.speed*=0.985;
+    if(keys["s"] || keys["ArrowDown"]) car.speed -= brake;
+    car.speed = Math.max(0, Math.min(car.speed,maxSpeed));
+
+    if(keys[controls.left]){ car.lane = Math.max(-1, car.lane-1); car.targetSteer=-0.6; }
+    if(keys[controls.right]){ car.lane = Math.min(1, car.lane+1); car.targetSteer=0.6; }
+    if(!keys[controls.left] && !keys[controls.right]) car.targetSteer=0;
+
+    car.steerAngle += (car.targetSteer - car.steerAngle)*steerReturn;
+    car.rotation.y = car.steerAngle*steerStrength*(car.speed/maxSpeed*2);
+    car.rotation.z = -car.steerAngle*0.3;
+
+    car.position.z -= car.speed*0.05;
+    car.position.x += (car.lane*laneWidth - car.position.x)*laneSmooth;
+
+    detectCrash(car);
+}
+
+// === Animate ===
+function animate(){
+    requestAnimationFrame(animate);
+    if(car1) updateCarPhysics(car1, controls1);
+    if(car2) updateCarPhysics(car2, controls2);
+    updateNPC();
+    updateCamera(camera1, car1);
+    updateCamera(camera2, car2);
+
+    const w = window.innerWidth, h = window.innerHeight;
+    renderer.setScissorTest(true);
+
+    // Top screen – Player1
+    renderer.setViewport(0, h/2, w, h/2);
+    renderer.setScissor(0, h/2, w, h/2);
+    renderer.render(scene, camera1);
+
+    // Bottom screen – Player2
+    renderer.setViewport(0, 0, w, h/2);
+    renderer.setScissor(0, 0, w, h/2);
+    renderer.render(scene, camera2);
+}
+
+animate();
+
+window.addEventListener("resize", ()=>{
+    renderer.setSize(window.innerWidth, window.innerHeight);
+});
